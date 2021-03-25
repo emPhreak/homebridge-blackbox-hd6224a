@@ -1,16 +1,16 @@
 {
-  "private": true,
-  "displayName": "Plugin Name",
-  "name": "homebridge-plugin-name",
+  "private": false,
+  "displayName": "BlackBox HD6224A",
+  "name": "homebridge-blackbox-hd6224a",
   "version": "1.0.0",
-  "description": "A short description about what your plugin does.",
+  "description": "Control BlackBox HD6224A KVM box over serial port (RS-232)",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git://github.com/USERNAME/GITHUB_PROJECT_NAME.git"
+    "url": "git://github.com/emPhreak/homebridge-blackbox-hd6224a"
   },
   "bugs": {
-    "url": "https://github.com/USERNAME/GITHUB_PROJECT_NAME/issues"
+    "url": "https://github.com/emPhreak/homebridge-blackbox-hd6224a/issues"
   },
   "engines": {
     "node": ">=10.17.0",
@@ -24,11 +24,16 @@
     "prepublishOnly": "npm run lint && npm run build"
   },
   "keywords": [
-    "homebridge-plugin"
+    "homebridge-plugin",
+    "blackbox",
+    "hd6224a"
   ],
-  "dependencies": {},
+  "dependencies": {
+    "serialport": "^8.0.8"
+  },
   "devDependencies": {
     "@types/node": "^14.14.31",
+    "@types/serialport": "^8.0.1",
     "@typescript-eslint/eslint-plugin": "^4.16.1",
     "@typescript-eslint/parser": "^4.16.1",
     "eslint": "^7.21.0",

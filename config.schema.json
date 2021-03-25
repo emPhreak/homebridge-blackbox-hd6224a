@@ -1,15 +1,60 @@
 {
-  "pluginAlias": "ExampleHomebridgePlugin",
+  "pluginAlias": "BlackBoxHD6224A",
   "pluginType": "platform",
-  "singular": true,
+  "singular": false,
   "schema": {
     "type": "object",
     "properties": {
-      "name": {
-        "title": "Name",
-        "type": "string",
-        "required": true,
-        "default": "Example Dynamic Platform"
+      "devices": {
+        "type": "array",
+        "items": {
+          "title": "Devices",
+          "type": "object",
+          "properties": {
+            "name": {
+              "title": "Name",
+              "type": "string",
+              "required": true,
+              "default": "KVM"
+            },
+            "path": {
+              "title": "Port",
+              "type": "string",
+              "required": true,
+              "default": "/dev/tty.usbserial-AQ01AU6R"
+            },
+            "baudRate": {
+              "title": "Baud Rate",
+              "type": "integer",
+              "required": true,
+              "default": 115200
+            },
+            "input1": {
+              "title": "Input #1",
+              "type": "string",
+              "required": true,
+              "default": "A"
+            },
+            "input2": {
+              "title": "Input #2",
+              "type": "string",
+              "required": true,
+              "default": "B"
+            },
+            "input3": {
+              "title": "Input #3",
+              "type": "string",
+              "required": true,
+              "default": "C"
+            },
+            "input4": {
+              "title": "Input #4",
+              "type": "string",
+              "required": true,
+              "default": "D"
+            }
+          }
+        }
       }
     }
   }

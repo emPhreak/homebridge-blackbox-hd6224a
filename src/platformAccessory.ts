@@ -1,105 +1,179 @@
-import { Service, PlatformAccessory, CharacteristicValue } from 'homebridge';
+import { API, Service, PlatformAccessory, CharacteristicValue, Logger } from 'homebridge';
 
-import { ExampleHomebridgePlatform } from './platform';
+import { BlackBoxH6224HomebridgePlatform } from './platform';
+import { KvmConfig } from './kvmConfig';
+import SerialPort from 'serialport';
 
 /**
  * Platform Accessory
  * An instance of this class is created for each accessory your platform registers
  * Each accessory may expose multiple services of different service types.
  */
-export class ExamplePlatformAccessory {
+export class HD6224Accessory {
   private service: Service;
 
-  /**
-   * These are just used to create a working example
-   * You should implement your own code to track the state of your accessory
-   */
-  private exampleStates = {
-    On: false,
-    Brightness: 100,
-  };
+  // store state of which input is active on the KVM
+  private activeIdentifier = 1;
+
+  private readonly port: SerialPort;
+  private readonly parser: SerialPort.parsers.Readline;
 
   constructor(
-    private readonly platform: ExampleHomebridgePlatform,
+    private readonly log: Logger,
+    private readonly api: API,
+    private readonly config: KvmConfig,
+    private readonly platform: BlackBoxH6224HomebridgePlatform,
     private readonly accessory: PlatformAccessory,
   ) {
 
+    // handle config
+    const c = config;
+    this.log.info('Config: ', c);
+
+    // setup the serial port connection to the KVM
+    this.port = new SerialPort(c.path, {
+      baudRate: c.baudRate,
+      dataBits: 8,
+      stopBits: 1,
+      parity: 'none',
+      lock: true,
+      autoOpen: true,
+      xoff: false,
+      xon: false,
+    }, (error: Error | null | undefined) => {
+      if (error) {
+        this.log.error(error.message);
+      }
+    });
+
+    // Use a `\r\n` as a line terminator
+    this.parser = new SerialPort.parsers.Readline({
+      delimiter: '\r',
+      includeDelimiter: false,
+    });
+
+    this.port.pipe(this.parser);
+
     // set accessory information
     this.accessory.getService(this.platform.Service.AccessoryInformation)!
-      .setCharacteristic(this.platform.Characteristic.Manufacturer, 'Default-Manufacturer')
-      .setCharacteristic(this.platform.Characteristic.Model, 'Default-Model')
-      .setCharacteristic(this.platform.Characteristic.SerialNumber, 'Default-Serial');
+      .setCharacteristic(this.platform.Characteristic.Manufacturer, 'BlackBox')
+      .setCharacteristic(this.platform.Characteristic.Model, 'HD6224A')
+      .setCharacteristic(this.platform.Characteristic.Name, c.name)
+      .setCharacteristic(this.platform.Characteristic.FirmwareRevision, 'V2')
+      .setCharacteristic(this.platform.Characteristic.SerialNumber, c.path);
 
-    // get the LightBulb service if it exists, otherwise create a new LightBulb service
+    this.accessory.category = this.api.hap.Categories.TV_SET_TOP_BOX;
+
     // you can create multiple services for each accessory
-    this.service = this.accessory.getService(this.platform.Service.Lightbulb) || this.accessory.addService(this.platform.Service.Lightbulb);
+    this.service = this.accessory.getService(this.platform.Service.Television) ||
+                    this.accessory.addService(this.platform.Service.Television);
 
     // set the service name, this is what is displayed as the default name on the Home app
     // in this example we are using the name we stored in the `accessory.context` in the `discoverDevices` method.
-    this.service.setCharacteristic(this.platform.Characteristic.Name, accessory.context.device.exampleDisplayName);
+    this.service.setCharacteristic(this.platform.Characteristic.ConfiguredName, c.name);
+    this.service.setCharacteristic(this.platform.Characteristic.SleepDiscoveryMode,
+      this.platform.Characteristic.SleepDiscoveryMode.NOT_DISCOVERABLE);
 
     // each service must implement at-minimum the "required characteristics" for the given service type
-    // see https://developers.homebridge.io/#/service/Lightbulb
+    this.service.getCharacteristic(this.platform.Characteristic.Active)
+      .onSet(this.setActive.bind(this))
+      .onGet(this.getActive.bind(this));
 
-    // register handlers for the On/Off Characteristic
-    this.service.getCharacteristic(this.platform.Characteristic.On)
-      .onSet(this.setOn.bind(this))                // SET - bind to the `setOn` method below
-      .onGet(this.getOn.bind(this));               // GET - bind to the `getOn` method below
+    this.service.getCharacteristic(this.platform.Characteristic.ActiveIdentifier)
+      .onSet(this.setActiveIdentifier.bind(this))
+      .onGet(this.getActiveIdentifier.bind(this));
 
-    // register handlers for the Brightness Characteristic
-    this.service.getCharacteristic(this.platform.Characteristic.Brightness)
-      .onSet(this.setBrightness.bind(this));       // SET - bind to the 'setBrightness` method below
+    this.service.getCharacteristic(this.platform.Characteristic.Identify)
+      .onSet((newValue) => {
+        this.log.info('Identify -> ', newValue);
+      });
 
-    /**
-     * Creating multiple services of the same type.
-     *
-     * To avoid "Cannot add a Service with the same UUID another Service without also defining a unique 'subtype' property." error,
-     * when creating multiple services of the same type, you need to use the following syntax to specify a name and subtype id:
-     * this.accessory.getService('NAME') || this.accessory.addService(this.platform.Service.Lightbulb, 'NAME', 'USER_DEFINED_SUBTYPE_ID');
-     *
-     * The USER_DEFINED_SUBTYPE must be unique to the platform accessory (if you platform exposes multiple accessories, each accessory
-     * can use the same sub type id.)
-     */
-
-    // Example: add two "motion sensor" services to the accessory
-    const motionSensorOneService = this.accessory.getService('Motion Sensor One Name') ||
-      this.accessory.addService(this.platform.Service.MotionSensor, 'Motion Sensor One Name', 'YourUniqueIdentifier-1');
-
-    const motionSensorTwoService = this.accessory.getService('Motion Sensor Two Name') ||
-      this.accessory.addService(this.platform.Service.MotionSensor, 'Motion Sensor Two Name', 'YourUniqueIdentifier-2');
+    this.service.getCharacteristic(this.platform.Characteristic.RemoteKey)
+      .onSet((newValue) => {
+        this.log.info('RemoteKey -> ', newValue);
+      });
 
     /**
-     * Updating characteristics values asynchronously.
-     *
-     * Example showing how to update the state of a Characteristic asynchronously instead
-     * of using the `on('get')` handlers.
-     * Here we change update the motion sensor trigger states on and off every 10 seconds
-     * the `updateCharacteristic` method.
-     *
+     * Create TV Input Source Services
+     * These are the inputs the user can select from.
+     * When a user selected an input the corresponding Identifier Characteristic
+     * is sent to the TV Service ActiveIdentifier Characteristic handler.
      */
-    let motionDetected = false;
-    setInterval(() => {
-      // EXAMPLE - inverse the trigger
-      motionDetected = !motionDetected;
 
-      // push the new value to HomeKit
-      motionSensorOneService.updateCharacteristic(this.platform.Characteristic.MotionDetected, motionDetected);
-      motionSensorTwoService.updateCharacteristic(this.platform.Characteristic.MotionDetected, !motionDetected);
+    // HDMI 1 Input Source
+    const hdmi1InputService = this.accessory.addService(this.platform.Service.InputSource, 'input1', c.input1);
+    hdmi1InputService
+      .setCharacteristic(this.platform.Characteristic.Identifier, 1)
+      .setCharacteristic(this.platform.Characteristic.Name, 'input1')
+      .setCharacteristic(this.platform.Characteristic.ConfiguredName, c.input1)
+      .setCharacteristic(this.platform.Characteristic.IsConfigured, this.platform.Characteristic.IsConfigured.CONFIGURED)
+      .setCharacteristic(this.platform.Characteristic.CurrentVisibilityState, this.platform.Characteristic.CurrentVisibilityState.SHOWN)
+      .setCharacteristic(this.platform.Characteristic.InputSourceType, this.platform.Characteristic.InputSourceType.HDMI);
+    this.service.addLinkedService(hdmi1InputService); // link to tv service
 
-      this.platform.log.debug('Triggering motionSensorOneService:', motionDetected);
-      this.platform.log.debug('Triggering motionSensorTwoService:', !motionDetected);
-    }, 10000);
+    const hdmi2InputService = this.accessory.addService(this.platform.Service.InputSource, 'input2', c.input2);
+    hdmi2InputService
+      .setCharacteristic(this.platform.Characteristic.Identifier, 2)
+      .setCharacteristic(this.platform.Characteristic.Name, 'input2')
+      .setCharacteristic(this.platform.Characteristic.ConfiguredName, c.input2)
+      .setCharacteristic(this.platform.Characteristic.IsConfigured, this.platform.Characteristic.IsConfigured.CONFIGURED)
+      .setCharacteristic(this.platform.Characteristic.CurrentVisibilityState, this.platform.Characteristic.CurrentVisibilityState.SHOWN)
+      .setCharacteristic(this.platform.Characteristic.InputSourceType, this.platform.Characteristic.InputSourceType.HDMI);
+    this.service.addLinkedService(hdmi2InputService); // link to tv service
+
+    const hdmi3InputService = this.accessory.addService(this.platform.Service.InputSource, 'input3', c.input3);
+    hdmi3InputService
+      .setCharacteristic(this.platform.Characteristic.Identifier, 3)
+      .setCharacteristic(this.platform.Characteristic.Name, 'input3')
+      .setCharacteristic(this.platform.Characteristic.ConfiguredName, c.input3)
+      .setCharacteristic(this.platform.Characteristic.IsConfigured, this.platform.Characteristic.IsConfigured.CONFIGURED)
+      .setCharacteristic(this.platform.Characteristic.CurrentVisibilityState, this.platform.Characteristic.CurrentVisibilityState.SHOWN)
+      .setCharacteristic(this.platform.Characteristic.InputSourceType, this.platform.Characteristic.InputSourceType.HDMI);
+    this.service.addLinkedService(hdmi3InputService); // link to tv service
+
+    const hdmi4InputService = this.accessory.addService(this.platform.Service.InputSource, 'input4', c.input4);
+    hdmi4InputService
+      .setCharacteristic(this.platform.Characteristic.Identifier, 4)
+      .setCharacteristic(this.platform.Characteristic.Name, 'input4')
+      .setCharacteristic(this.platform.Characteristic.ConfiguredName, c.input4)
+      .setCharacteristic(this.platform.Characteristic.IsConfigured, this.platform.Characteristic.IsConfigured.CONFIGURED)
+      .setCharacteristic(this.platform.Characteristic.CurrentVisibilityState, this.platform.Characteristic.CurrentVisibilityState.SHOWN)
+      .setCharacteristic(this.platform.Characteristic.InputSourceType, this.platform.Characteristic.InputSourceType.HDMI);
+    this.service.addLinkedService(hdmi4InputService); // link to tv service
+  }
+
+  async setActive(value: CharacteristicValue) {
+    // implement your own code to turn your device on/off
+    const isOn = value as boolean;
+
+    if (isOn) {
+      // open the serial port
+      this.port.open();
+    } else {
+      // close the serial port
+      this.port.close();
+    }
+
+    this.log.info('Set IsActive = ', isOn);
+  }
+
+  async getActive(): Promise<CharacteristicValue> {
+    const isOn = this.port.isOpen;
+    this.log.info('Get IsActive = ', isOn);
+    return isOn;
   }
 
   /**
    * Handle "SET" requests from HomeKit
    * These are sent when the user changes the state of an accessory, for example, turning on a Light bulb.
    */
-  async setOn(value: CharacteristicValue) {
-    // implement your own code to turn your device on/off
-    this.exampleStates.On = value as boolean;
+  async setActiveIdentifier(value: CharacteristicValue) {
+    this.activeIdentifier = value as number;
 
-    this.platform.log.debug('Set Characteristic On ->', value);
+    // send command (e.g. "//m[#]") to serial port
+    const command = '//m' + this.activeIdentifier + '\r\n';
+    this.port.write(command);
+    this.log.info(command);
   }
 
   /**
@@ -115,27 +189,18 @@ export class ExamplePlatformAccessory {
    * @example
    * this.service.updateCharacteristic(this.platform.Characteristic.On, true)
    */
-  async getOn(): Promise<CharacteristicValue> {
+  async getActiveIdentifier(): Promise<CharacteristicValue> {
     // implement your own code to check if the device is on
-    const isOn = this.exampleStates.On;
+    const id = this.activeIdentifier;
 
-    this.platform.log.debug('Get Characteristic On ->', isOn);
+    // TODO: parse strings from command to KVM (e.g: "//?" -> "Current KM Control: 2")
+
+    this.platform.log.info('Get Characteristic ActiveIdentifier ->', id);
 
     // if you need to return an error to show the device as "Not Responding" in the Home app:
     // throw new this.platform.api.hap.HapStatusError(this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
 
-    return isOn;
-  }
-
-  /**
-   * Handle "SET" requests from HomeKit
-   * These are sent when the user changes the state of an accessory, for example, changing the Brightness
-   */
-  async setBrightness(value: CharacteristicValue) {
-    // implement your own code to set the brightness
-    this.exampleStates.Brightness = value as number;
-
-    this.platform.log.debug('Set Characteristic Brightness -> ', value);
+    return id;
   }
 
 }
