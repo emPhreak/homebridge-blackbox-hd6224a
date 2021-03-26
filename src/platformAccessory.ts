@@ -100,7 +100,7 @@ export class HD6224Accessory {
      * is sent to the TV Service ActiveIdentifier Characteristic handler.
      */
 
-    // HDMI 1 Input Source
+    // TODO: hook the set configured name so it can overwrite the settings file
     const hdmi1InputService = this.accessory.addService(this.platform.Service.InputSource, 'input1', c.input1);
     hdmi1InputService
       .setCharacteristic(this.platform.Characteristic.Identifier, 1)
@@ -146,12 +146,20 @@ export class HD6224Accessory {
     // implement your own code to turn your device on/off
     const isOn = value as boolean;
 
-    if (isOn) {
+    if (isOn && !this.port.isOpen) {
       // open the serial port
-      this.port.open();
-    } else {
+      this.port.open((error: Error | null | undefined) => {
+        if (error) {
+          this.log.error(error.message);
+        }
+      });
+    } else if (!isOn && this.port.isOpen) {
       // close the serial port
-      this.port.close();
+      this.port.close((error: Error | null | undefined) => {
+        if (error) {
+          this.log.error(error.message);
+        }
+      });
     }
 
     this.log.info('Set IsActive = ', isOn);
@@ -172,7 +180,11 @@ export class HD6224Accessory {
 
     // send command (e.g. "//m[#]") to serial port
     const command = '//m' + this.activeIdentifier + '\r\n';
-    this.port.write(command);
+    this.port.write(command, (error: Error | null | undefined) => {
+      if (error) {
+        this.log.error(error.message);
+      }
+    });
     this.log.info(command);
   }
 
